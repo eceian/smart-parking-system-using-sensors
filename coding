@@ -1,0 +1,114 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <LiquidCrystal_I2C.h>
+#include <ESP32Servo.h>
+
+// ----------- LCD -----------
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// ----------- WiFi AP -----------
+const char* ssid = "ESP32_PARKING";
+const char* password = "12345678";
+WebServer server(80);
+
+// ----------- Pins -----------
+#define ENTRY_IR 18
+#define EXIT_IR 19
+
+#define SLOT1_IR 32
+#define SLOT2_IR 33
+#define SLOT3_IR 34
+
+#define SERVO_PIN 25
+
+Servo gateServo;
+
+// ----------- Variables -----------
+bool slot1, slot2, slot3;
+int availableSlots = 3;
+
+// ----------- Web Page -----------
+String webpage() {
+  String html = "<!DOCTYPE html><html><head>";
+  html += "<style>";
+  html += "body{font-family:Arial;text-align:center;background:#f4f8ff}";
+  html += ".slot{width:100px;height:100px;margin:20px;display:inline-block;";
+  html += "color:white;font-size:20px;line-height:100px;border-radius:15px}";
+  html += ".green{background:green}";
+  html += ".red{background:red}";
+  html += "</style></head><body>";
+
+  html += "<h1>Smart Parking System</h1>";
+  html += "<h2>Available Slots: " + String(availableSlots) + "</h2>";
+
+  html += "<div class='slot " + String(slot1 ? "red" : "green") + "'>Slot 1</div>";
+  html += "<div class='slot " + String(slot2 ? "red" : "green") + "'>Slot 2</div>";
+  html += "<div class='slot " + String(slot3 ? "red" : "green") + "'>Slot 3</div>";
+
+  html += "</body></html>";
+  return html;
+}
+
+// ----------- Setup -----------
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(ENTRY_IR, INPUT);
+  pinMode(EXIT_IR, INPUT);
+  pinMode(SLOT1_IR, INPUT);
+  pinMode(SLOT2_IR, INPUT);
+  pinMode(SLOT3_IR, INPUT);
+
+  gateServo.attach(SERVO_PIN);
+  gateServo.write(0); // gate closed
+
+  lcd.init();
+  lcd.backlight();
+
+  WiFi.softAP(ssid, password);
+  Serial.println(WiFi.softAPIP());
+
+  server.on("/", []() {
+    server.send(200, "text/html", webpage());
+  });
+
+  server.begin();
+}
+
+// ----------- Loop -----------
+void loop() {
+  server.handleClient();
+
+  // Slot Status
+  slot1 = digitalRead(SLOT1_IR) == LOW;
+  slot2 = digitalRead(SLOT2_IR) == LOW;
+  slot3 = digitalRead(SLOT3_IR) == LOW;
+
+  availableSlots = 3 - (slot1 + slot2 + slot3);
+
+  // LCD Display
+  lcd.setCursor(0, 0);
+  lcd.print("Slots Free: ");
+  lcd.print(availableSlots);
+  lcd.print("  ");
+
+  lcd.setCursor(0, 1);
+  lcd.print("S1:");
+  lcd.print(slot1 ? "O " : "F ");
+  lcd.print("S2:");
+  lcd.print(slot2 ? "O " : "F ");
+  lcd.print("S3:");
+  lcd.print(slot3 ? "O " : "F ");
+
+  // Entry Gate
+  if (digitalRead(ENTRY_IR) == LOW && availableSlots > 0) {
+    gateServo.write(90);
+    delay(2000);
+  }
+
+  // Exit Gate
+  if (digitalRead(EXIT_IR) == LOW) {
+    gateServo.write(0);
+    delay(2000);
+  }
+}
